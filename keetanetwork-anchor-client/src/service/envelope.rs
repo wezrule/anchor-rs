@@ -77,6 +77,14 @@ mod decode {
 			return Ok(AnchorOutcome::Retry { after_ms });
 		}
 		if !response.is_success() || envelope.ok == Some(false) {
+			#[cfg(feature = "asset")]
+			if let Ok(body) = serde_json::from_slice::<serde_json::Value>(&response.body) {
+				let blocker = crate::services::asset_movement::AssetMovementBlocker::from_transport(&body);
+				if blocker.is_recognized() {
+					return Err(AnchorClientError::Blocker { blocker });
+				}
+			}
+
 			return Err(AnchorClientError::Service { status: response.status });
 		}
 
@@ -155,6 +163,30 @@ mod decode {
 			let response = HttpResponse::new(202, b"pending".to_vec());
 			let outcome = classify::<Value>(response);
 			assert!(matches!(outcome, Ok(AnchorOutcome::Retry { after_ms: DEFAULT_RETRY_MS })));
+		}
+
+		#[cfg(feature = "asset")]
+		#[test]
+		fn a_recognized_asset_movement_blocker_survives_a_forbidden_status() {
+			use crate::services::asset_movement::error::KYC_SHARE_NEEDED;
+
+			let response = HttpResponse::new(
+				403,
+				serde_json::json!({
+					"ok": false,
+					"name": "KeetaAssetMovementAnchorKYCShareNeededError",
+					"code": KYC_SHARE_NEEDED,
+					"error": "share needed",
+					"data": { "shareWithPrincipals": ["keeta_p"], "acceptedIssuers": [] }
+				})
+				.to_string()
+				.into_bytes(),
+			);
+			let outcome = classify::<serde_json::Value>(response);
+			assert!(matches!(
+				outcome,
+				Err(AnchorClientError::Blocker { blocker }) if matches!(blocker, crate::services::asset_movement::AssetMovementBlocker::KycShareNeeded { .. })
+			));
 		}
 
 		#[test]

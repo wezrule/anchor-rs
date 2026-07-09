@@ -14,13 +14,13 @@ use alloc::vec::Vec;
 use serde_json::Value;
 
 /// A stable transport code identifying an asset-movement blocker.
-const KYC_SHARE_NEEDED: &str = "KEETA_ANCHOR_ASSET_MOVEMENT_KYC_SHARE_NEEDED";
+pub(crate) const KYC_SHARE_NEEDED: &str = "KEETA_ANCHOR_ASSET_MOVEMENT_KYC_SHARE_NEEDED";
 /// The additional-KYC-needed transport code.
-const ADDITIONAL_KYC_NEEDED: &str = "KEETA_ANCHOR_ASSET_MOVEMENT_ADDITIONAL_KYC_NEEDED";
+pub(crate) const ADDITIONAL_KYC_NEEDED: &str = "KEETA_ANCHOR_ASSET_MOVEMENT_ADDITIONAL_KYC_NEEDED";
 /// The operation-not-supported transport code.
-const OPERATION_NOT_SUPPORTED: &str = "KEETA_ANCHOR_ASSET_MOVEMENT_OPERATION_NOT_SUPPORTED";
+pub(crate) const OPERATION_NOT_SUPPORTED: &str = "KEETA_ANCHOR_ASSET_MOVEMENT_OPERATION_NOT_SUPPORTED";
 /// The user-action-needed transport code.
-const USER_ACTION_NEEDED: &str = "KEETA_ANCHOR_ASSET_MOVEMENT_USER_ACTION_NEEDED";
+pub(crate) const USER_ACTION_NEEDED: &str = "KEETA_ANCHOR_ASSET_MOVEMENT_USER_ACTION_NEEDED";
 
 /// A blocker an anchor reports that a user must resolve before proceeding.
 ///
@@ -72,6 +72,52 @@ pub enum AssetMovementBlocker {
 }
 
 impl AssetMovementBlocker {
+	/// The stable transport code for a recognized blocker variant.
+	pub fn static_transport_code(&self) -> Option<&'static str> {
+		match self {
+			Self::KycShareNeeded { .. } => Some(KYC_SHARE_NEEDED),
+			Self::AdditionalKycNeeded { .. } => Some(ADDITIONAL_KYC_NEEDED),
+			Self::OperationNotSupported { .. } => Some(OPERATION_NOT_SUPPORTED),
+			Self::UserActionNeeded { .. } => Some(USER_ACTION_NEEDED),
+			Self::Other { .. } => None,
+		}
+	}
+
+	/// Whether this blocker rehydrated from a known asset-movement error code.
+	pub fn is_recognized(&self) -> bool {
+		!matches!(self, Self::Other { .. })
+	}
+
+	/// The `type`-discriminated JSON every FFI boundary expects.
+	pub fn to_json(&self) -> Value {
+		match self {
+			Self::KycShareNeeded {
+				tos_flow,
+				needed_attributes,
+				share_with_principals,
+				accepted_issuers,
+			} => serde_json::json!({
+				"type": "kycShareNeeded",
+				"tosFlow": tos_flow,
+				"neededAttributes": needed_attributes,
+				"shareWithPrincipals": share_with_principals,
+				"acceptedIssuers": accepted_issuers,
+			}),
+			Self::AdditionalKycNeeded { to_complete_flow } => {
+				serde_json::json!({ "type": "additionalKycNeeded", "toCompleteFlow": to_complete_flow })
+			}
+			Self::OperationNotSupported { for_asset, for_rail } => {
+				serde_json::json!({ "type": "operationNotSupported", "forAsset": for_asset, "forRail": for_rail })
+			}
+			Self::UserActionNeeded { actions_needed } => {
+				serde_json::json!({ "type": "userActionNeeded", "actionsNeeded": actions_needed })
+			}
+			Self::Other { name, code, message } => {
+				serde_json::json!({ "type": "other", "name": name, "code": code, "message": message })
+			}
+		}
+	}
+
 	/// Rehydrate a blocker from an anchor error envelope
 	/// (`{ ok, name, code, data, error }`).
 	pub fn from_transport(entry: &Value) -> Self {

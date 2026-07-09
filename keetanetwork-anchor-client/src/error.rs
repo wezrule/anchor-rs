@@ -189,6 +189,15 @@ pub enum AnchorClientError {
 		status: u16,
 	},
 
+	/// An asset-movement operation reported a typed blocker the caller must
+	/// resolve (share KYC, complete onboarding, and so on).
+	#[cfg(feature = "asset")]
+	#[snafu(display("asset-movement blocker"))]
+	Blocker {
+		/// The blocker parsed from the anchor error envelope.
+		blocker: crate::services::asset_movement::AssetMovementBlocker,
+	},
+
 	/// The resolved provider does not advertise a required operation.
 	#[snafu(display("provider does not advertise the `{operation}` operation"))]
 	UnsupportedOperation {
@@ -237,6 +246,12 @@ impl AnchorClientError {
 			Self::Request { .. } => "REQUEST",
 			Self::Body { .. } => "INVALID_BODY",
 			Self::Service { .. } => "SERVICE",
+
+			#[cfg(feature = "asset")]
+			Self::Blocker { blocker } => blocker
+				.static_transport_code()
+				.unwrap_or("SERVICE"),
+
 			Self::UnsupportedOperation { .. } => "UNSUPPORTED_OPERATION",
 			Self::Timeout { .. } => "TIMEOUT",
 

@@ -13,8 +13,8 @@ use keetanetwork_account::GenericAccount;
 use keetanetwork_anchor_bindings::error::CodedError;
 use keetanetwork_anchor_bindings::registry::HandleRegistry;
 use keetanetwork_anchor_client::{
-	AnchorClientError, AnchorContext, AssetMovementClient, AssetMovementProvider, AwaitOptions, ProviderFilter,
-	Resolver,
+	AnchorClientError, AnchorContext, AssetMovementBlocker, AssetMovementClient, AssetMovementProvider, AwaitOptions,
+	ProviderFilter, Resolver,
 };
 use keetanetwork_client_wasi::{bytes_result, string_in};
 
@@ -554,5 +554,22 @@ fn unreadable() -> CodedError {
 
 /// The coded error for an anchor client failure.
 fn coded(error: AnchorClientError) -> CodedError {
-	CodedError::new(error.code(), error.to_string())
+	match error {
+		AnchorClientError::Blocker { blocker } => {
+			let code = blocker
+				.static_transport_code()
+				.map(str::to_string)
+				.or_else(|| {
+					if let AssetMovementBlocker::Other { code: Some(code), .. } = &blocker {
+						Some(code.clone())
+					} else {
+						None
+					}
+				})
+				.unwrap_or_else(|| "SERVICE".to_string());
+			let message = serde_json::to_string(&blocker.to_json()).unwrap_or_default();
+			CodedError::new(code, message)
+		}
+		other => CodedError::new(other.code(), other.to_string()),
+	}
 }
